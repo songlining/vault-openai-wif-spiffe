@@ -24,25 +24,48 @@ means *rejected* or merely *undocumented*.
 
 ## Run it
 
+Everything runs in Podman. Nothing is installed or run on the host.
+
 ```bash
-./setup-vault.sh     # Vault dev server -> OIDC issuer + JWKS, prints what to paste
+./run-vault.sh       # Vault 2.1.2 container -> http://127.0.0.1:8200
+./setup-vault.sh     # OIDC key/role + caller, writes out/jwks.json, prints what to paste
 ./mint-token.sh      # mint the subject JWT, assert it has the claims OpenAI requires
 ./exchange.sh        # POST auth.openai.com/oauth/token, no API key
+./stop-vault.sh      # remove the container
 ```
 
-Stop the dev server with `pkill -f 'vault server -dev'`.
+`run-vault.sh` uses `hashicorp/vault:2.1.2` — the current release. Bump the tag in that
+script when a newer one lands.
+
+Dev mode means in-memory storage and an auto-unsealed server, so **state is lost when
+the container is removed**; `run-vault.sh && setup-vault.sh` rebuilds it in seconds.
+That is the right trade here, because the thing under test is the JWT's issuer and
+claims, not Vault's storage or HA story.
+
+## Does this need ngrok?
+
+Only if you use OIDC **discovery**. OpenAI can be given Vault's keys two ways:
+
+| Mode | Does OpenAI fetch anything? | Public exposure needed? |
+|---|---|---|
+| **Uploaded JWKS** | No — you paste the key set; the issuer URL is only compared as a string against the `iss` claim | **No** |
+| **OIDC discovery** | Yes — `https://<issuer>/.well-known/openid-configuration`, then the `jwks_uri` | **Yes** — public HTTPS on 443, real DNS name, no IP literals |
+
+So the probe tries **uploaded JWKS first, with no tunnel**. If OpenAI rejects
+`http://127.0.0.1:8200/v1/identity/oidc` as an issuer string, that is itself the finding,
+and the tunnel is the fallback (below).
 
 ## The two manual clicks
 
 OpenAI has **no API and no Terraform resource** for these two objects — the documented
 OpenAPI spec has 228 paths and none of them create a Workload Identity Provider or a
-mapping. This is the only non-scriptable part of the whole flow.
+mapping. This is the only non-scriptable part of the flow.
 
 1. **platform.openai.com → Settings → Organization → Security → Workload Identity Provider**
    - OIDC Issuer URL: what `setup-vault.sh` printed
    - Audience: same
    - Enable **"Use uploaded JWKS for token verification"** and paste `out/jwks.json`
-     (this avoids the public-HTTPS discovery fetch, which a local Vault cannot serve)
+     (this is what avoids the public-HTTPS discovery fetch)
    - Record the provider ID → `OPENAI_IDENTITY_PROVIDER_ID`
 2. **Project → Service accounts → create**, then on the provider page **Create mapping**
    targeting that service account, matching on `sub`
@@ -54,24 +77,26 @@ cp .env.example .env   # fill in the two IDs
 
 ## Verified: what Vault actually issues
 
-Measured against Vault v1.20.0, not read off a doc page:
+Measured against Vault v2.1.2 in Podman, not read off a doc page:
 
 ```json
 {
   "aud": "https://api.openai.com/v1",
-  "exp": 1791414536,
-  "iat": 1791413936,
+  "exp": 1791414898,
+  "iat": 1791414298,
   "iss": "http://127.0.0.1:8200/v1/identity/oidc",
   "namespace": "root",
-  "sub": "0cc5cc33-9e3a-2439-1627-abf864803bbf"
+  "sub": "3e87a74f-2a29-2226-1807-87dc3eb01a7f"
 }
 ```
 
 Things that cost time to work out:
 
-- **The machine-token issuer is `<VAULT_ADDR>/v1/identity/oidc`** — *not* the provider
+- **The machine-token issuer is `<api_addr>/v1/identity/oidc`** — *not* the provider
   path. `identity/oidc/provider/<name>` is for the browser authorization-code flow and
   advertises a different `iss`. For WIF you want the plain identity/oidc issuer.
+- **`api_addr` is what the issuer is built from**, and dev mode honours it from a config
+  file (`vault.hcl`), not from the `-dev` flags. This is the knob for the tunnel case.
 - **`aud` comes from the role's `client_id`.** Set it to whatever you type into OpenAI's
   Audience field, and make sure the key's `allowed_client_ids` permits the same value.
 - **No provider and no scope are needed** for machine-to-machine. Key + role is enough.
@@ -82,7 +107,7 @@ Things that cost time to work out:
 - `kid` and `alg: RS256` are present, and `iss/aud/sub/exp/iat` are all present — the
   claim set OpenAI documents as mandatory.
 
-## The two failure modes, and how to tell them apart
+## The failure modes, and how to tell them apart
 
 | Symptom | Meaning |
 |---|---|
@@ -93,24 +118,25 @@ Things that cost time to work out:
 
 ## If the issuer is rejected
 
-The issuer string is `http://` + an IP literal. With JWKS uploaded, OpenAI never fetches
-it, so it may simply be compared as a string — which is the thing under test. If OpenAI
-rejects it, the fallback is to give Vault a public HTTPS identity:
+Give Vault a public HTTPS identity so the `iss` claim is one OpenAI will accept:
 
 1. Tunnel `127.0.0.1:8200` (cloudflared / ngrok).
-2. Start Vault with a config setting `api_addr` to the tunnel URL, so the `iss` claim
-   itself is the public one. The dev flag alone does not change `api_addr`.
-3. Re-run `setup-vault.sh`, re-upload `out/jwks.json`, update the issuer.
+2. Set `api_addr` in `vault.hcl` to the tunnel's URL, then `./run-vault.sh` again.
+   The issuer becomes `https://<tunnel-host>/v1/identity/oidc`.
+3. Re-run `setup-vault.sh`, update the issuer in OpenAI, and either re-upload
+   `out/jwks.json` or switch the provider to OIDC discovery.
 
-That makes Vault look like a conventional public OIDC issuer, which is the closest thing
-to a supported configuration this probe can reach.
+Use a **stable** hostname. A free quick tunnel gets a new random name on every restart,
+which changes the `iss` claim and forces you to update the provider each time — and
+OpenAI caches discovery and JWKS for 600 seconds.
 
 ## Findings
 
 Recorded as the probe runs:
 
-- 2026-10-08 — Vault-side issuer/JWKS/claims verified locally. OpenAI exchange not yet
-  attempted (no `platform.openai.com` session available to create the provider).
+- 2026-10-08 — Vault-side issuer, JWKS and claims verified on v2.1.2 in Podman.
+- 2026-10-08 — OpenAI exchange not yet attempted (no `platform.openai.com` session
+  available to create the provider).
 - Not yet established: whether a personal OpenAI org exposes Workload Identity Provider
   and Service accounts at all.
 
