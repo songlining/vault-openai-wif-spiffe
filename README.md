@@ -3,8 +3,10 @@
 Testing whether **HashiCorp Vault can act as the OIDC identity provider for OpenAI's
 Workload Identity Federation**, the way it can for Anthropic's.
 
-This is a probe, not a product. The goal is one answer: does OpenAI's token exchange
-accept a JWT signed by Vault? Nothing here calls a model.
+This is a probe, not a product. The end goal is to prove the whole loop: a client asks
+Vault to mint a JWT, OpenAI recognises it and returns a short-lived credential, and the
+client uses that credential to call the API and consume tokens — with no static API key
+anywhere in the chain.
 
 ## Why this is interesting
 
@@ -29,10 +31,31 @@ Everything runs in Podman. Nothing is installed or run on the host.
 ```bash
 ./run-vault.sh       # Vault 2.1.2 container -> http://127.0.0.1:8200
 ./setup-vault.sh     # OIDC key/role + caller, writes out/jwks.json, prints what to paste
-./mint-token.sh      # mint the subject JWT, assert it has the claims OpenAI requires
-./exchange.sh        # POST auth.openai.com/oauth/token, no API key
+./mint-token.sh      # STEP 1  Vault mints the subject JWT
+./exchange.sh        # STEP 2  OpenAI recognises it, returns the credential
+./use-token.sh       # STEP 3a client authenticates, spends nothing
+./use-token.sh --consume   # STEP 3b client consumes tokens (metered)
 ./stop-vault.sh      # remove the container
 ```
+
+## What each step proves
+
+| Step | Proves | Cost |
+|---|---|---|
+| 1 `mint-token.sh` | Vault can mint a JWT shaped the way OpenAI requires | free |
+| 2 `exchange.sh` | OpenAI **accepts** that JWT and mints a credential for the mapped service account | free |
+| 3a `use-token.sh` | the credential actually authorises against the API (`GET /v1/models`) | free |
+| 3b `use-token.sh --consume` | the credential can spend — one minimal inference call | **metered** |
+
+Step 3 is split deliberately. A `200` from `GET /v1/models` already proves the
+Vault-derived credential is accepted end to end, and it needs no credit on the org.
+Only 3b costs money, so it is opt-in. If you are testing on a personal org with no
+billing set up, stop at 3a — the loop is proven.
+
+One thing that can fail at 3a even when 2 succeeded: **authorisation**. If the mapping
+defines no Permissions, the credential inherits the service account's project roles — so
+the service account needs a role covering the endpoint you call. A `403` there is a
+role problem, not a WIF problem; a `401` means the credential itself was rejected.
 
 `run-vault.sh` uses `hashicorp/vault:2.1.2` — the current release. Bump the tag in that
 script when a newer one lands.
@@ -142,7 +165,11 @@ Recorded as the probe runs:
 
 ## Not in scope
 
-No inference calls — the probe stops at the access token. The exchange is an auth
-endpoint, so it consumes no tokens and needs no credit. The Admin API key
-(`OPENAI_ADMIN_KEY`) is also unnecessary: it can only list/read/delete admin keys, not
-create them, and it buys nothing here.
+- **The refresh loop.** The credential is short-lived and token exchange returns no
+  refresh token, so a long-running client must re-exchange before `expires_at`. The
+  probe does one exchange and one call; it does not implement the loop.
+- **The Admin API key** (`OPENAI_ADMIN_KEY`). It can only list/read/delete admin keys,
+  not create them, and it buys nothing here.
+
+Everything up to and including step 3a is free — the exchange is an auth endpoint, so it
+consumes no tokens and needs no credit on the org.

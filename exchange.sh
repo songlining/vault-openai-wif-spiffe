@@ -36,10 +36,15 @@ if "access_token" not in d:
     print("  - 'arbitrary OIDC issuer' rejection -> Vault is not a documented provider")
     sys.exit(1)
 
+# Hand the credential to the next step.
+open("out/access_token", "w").write(d["access_token"])
+
 t = d["access_token"]
 if t.count(".") == 2:
     p = t.split(".")[1]
     print("\naccess token claims:", json.dumps(
         json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))), indent=1))
-print(f"\nOK: minted a token, expires_in={d.get('expires_in')}s. No API key was used.")
+print(f"\nSTEP 2 OK: OpenAI recognised Vault's JWT and minted a credential "
+      f"(expires_in={d.get('expires_in')}s, no API key used).")
+print("Credential written to out/access_token. Next: ./use-token.sh")
 EOF
