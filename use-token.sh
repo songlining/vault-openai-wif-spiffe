@@ -62,7 +62,24 @@ echo "HTTP $CODE"
 
 if [ "$CODE" != "200" ]; then
   cat out/response.json; echo
-  [ "$CODE" = "429" ] && echo "429 -> likely no credit / quota on the org, or a rate limit."
+  # Distinguish the 429s: one is a guardrail working, the others are not.
+  python3 -c '
+import json
+code = ""
+try:
+    code = json.load(open("out/response.json")).get("error", {}).get("code", "")
+except Exception:
+    pass
+meaning = {
+    "credit_balance_exhausted": "no credit on the org — add credit to finish this step",
+    "project_spend_limit_exceeded": "the project hard spend limit fired — this is the guardrail working",
+    "organization_spend_limit_exceeded": "the org hard spend limit fired",
+}.get(code)
+if meaning:
+    print(f"429 [{code}] -> {meaning}")
+elif code:
+    print(f"429 [{code}] -> rate limit or quota, not a WIF problem")
+'
   exit 1
 fi
 

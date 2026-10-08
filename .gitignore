@@ -3,3 +3,8 @@ out/
 *.jwt
 *.swp
 *.swo
+
+# Vault Enterprise licence — a credential. Never commit it.
+*.hclic
+vault.hclic
+license/
