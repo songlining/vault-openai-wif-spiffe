@@ -1,13 +1,14 @@
 # Vault server config. Mounted read-only into the container.
 #
-# Dev mode derives api_addr from its listen address unless it is set here, and
-# api_addr is what the OIDC `iss` claim is built from. That makes this the one
-# knob that matters for the OpenAI side.
+# Dev mode derives api_addr from its listen address unless it is set here. It is
+# the address Vault advertises, and the SPIFFE engine's default issuer URL is
+# derived from it — setup-vault.sh sets jwt_issuer_url explicitly from
+# VAULT_API_ADDR, so this is the same value.
 #
-# Default: the issuer becomes http://127.0.0.1:8200/v1/identity/oidc
+# A tunnel hostname changes on every restart, so run-vault.sh regenerates
+# out/vault.hcl from .env rather than using this tracked file directly; editing
+# this file alone has no effect.
 #
-# If you need OpenAI to fetch discovery/JWKS itself (rather than uploading the
-# JWKS), point this at a public HTTPS URL from a tunnel and restart. OpenAI
-# requires public HTTPS on 443 with a real DNS name for discovery; IP literals
-# are rejected. See README.md.
+# If OpenAI fetches discovery/JWKS itself, the host must be public HTTPS on 443
+# with a real DNS name (IP literals are rejected). See README.md.
 api_addr = "http://127.0.0.1:8200"

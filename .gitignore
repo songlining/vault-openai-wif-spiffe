@@ -4,3 +4,13 @@ out/
 *.swp
 *.swo
 output/
+
+# Enterprise licences must never be committed
+*.hclic
+
+# The PowerPoint deck lives outside the repo — its screenshots carry
+# environment-specific detail
+*.pptx
+
+# Office lock files — temporary, and they carry the author name
+~$*

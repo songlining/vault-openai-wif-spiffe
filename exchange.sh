@@ -33,7 +33,7 @@ print(json.dumps(d, indent=1))
 if "access_token" not in d:
     print("\nFAILED: no access_token. Read the error above:")
     print("  - provider/mapping config problem  -> issuer, audience, or claims mismatch")
-    print("  - 'arbitrary OIDC issuer' rejection -> Vault is not a documented provider")
+    print("  - issuer/audience mismatch -> the provider must point at the SPIFFE issuer")
     sys.exit(1)
 
 # Hand the credential to the next step.
