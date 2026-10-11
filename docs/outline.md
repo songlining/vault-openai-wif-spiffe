@@ -179,16 +179,24 @@ Existing code panel. No edits.
 
 ## Slide 11 — Same identity, different exchange *(NEW)*
 
-- OpenAI and Anthropic both support workload identity federation today
+- OpenAI supports workload identity federation, and we proved Vault as its IdP
+- Anthropic documents the same pattern — read, not tested
 - Same identity, same attributes, same metadata on both
 - Only the exchange step differs
 - The identity is portable — the client code isn't
 - Define who a workload is, once
 
-> **Notes:** We have verified **OpenAI and Anthropic only**. Do not extend the claim
-> to other vendors — we have not assessed them, and a customer with a Bedrock or
-> Vertex estate will ask. Do **not** say the two are "identical": Anthropic uses
-> RFC 7523 `jwt-bearer`, OpenAI uses RFC 8693 token exchange, and rule selection is
+> **Notes:** Only **OpenAI** was tested end to end. Anthropic is *documented* behaviour
+> read from their docs, not exercised — say "documented" for Anthropic and "verified"
+> for OpenAI, and never blur the two. Anthropic names SPIFFE explicitly among its
+> accepted issuers ("any standards-compliant OIDC issuer such as GitHub Actions,
+> Kubernetes, SPIFFE, Microsoft Entra ID, or Okta"), and it has an Admin API for WIF;
+> OpenAI names no SPIFFE provider and is dashboard-only. Sources:
+> docs.claude.com/en/docs/build-with-claude/workload-identity-federation and
+> platform.openai.com/docs/guides/workload-identity-federation. Do not extend the claim
+> to other vendors either — we have not assessed them, and a customer with a Bedrock or
+> Vertex estate will ask. Do **not** say the two are "identical": Anthropic uses RFC
+> 7523 `jwt-bearer`, OpenAI uses RFC 8693 token exchange, and rule selection is
 > client-side vs server-side. The *identity* is portable; the exchange code is not.
 
 ---

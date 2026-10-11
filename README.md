@@ -1,9 +1,13 @@
 # Vault → OpenAI Workload Identity Federation — probe
 
 Testing whether **HashiCorp Vault can act as the identity provider for OpenAI's
-Workload Identity Federation**, the way it can for Anthropic's. Vault issues the subject
-token with the **SPIFFE secrets engine** (Vault Enterprise), which mints a **JWT-SVID**
-whose claims come from the role.
+Workload Identity Federation**. Vault issues the subject token with the **SPIFFE
+secrets engine** (Vault Enterprise), which mints a **JWT-SVID** whose claims come from
+the role.
+
+**OpenAI is the only vendor tested here.** Anthropic documents the same pattern and
+names SPIFFE among its accepted issuers — that column below is quoted from their docs,
+not exercised.
 
 This is a probe, not a product. The end goal is to prove the whole loop: a workload asks
 Vault to mint a JWT-SVID, OpenAI recognises it and returns a short-lived credential, and
@@ -16,12 +20,20 @@ Both providers do the same thing — exchange a short-lived IdP JWT for a short-
 platform token, so no static API key exists in the workload. They diverge on who may
 be the IdP:
 
-| | Anthropic | OpenAI |
+| | Anthropic *(documented)* | OpenAI *(tested here)* |
 |---|---|---|
-| Custom OIDC issuer | any standards-compliant issuer | documented providers only; otherwise *"contact OpenAI support"* |
+| Custom OIDC issuer | any standards-compliant issuer — SPIFFE is **named explicitly** | documented providers only; otherwise *"contact OpenAI support"* |
 | Grant | RFC 7523 `jwt-bearer` | RFC 8693 token exchange |
 | Rule selection | client names the rule ID | server resolves exactly one matching mapping |
-| Config API | — | dashboard only (no Admin API, no Terraform resource) |
+| Config API | Admin API | dashboard only (no Admin API, no Terraform resource) |
+
+Anthropic's docs: *"any standards-compliant OIDC issuer such as GitHub Actions,
+Kubernetes, SPIFFE, Microsoft Entra ID, or Okta."*
+
+Sources: [Anthropic — Workload Identity Federation](https://docs.claude.com/en/docs/build-with-claude/workload-identity-federation)
+· [OpenAI — Workload Identity Federation](https://platform.openai.com/docs/guides/workload-identity-federation)
+and the [token-exchange reference](https://developers.openai.com/api/reference/workload-identity-federation).
+**Only the OpenAI column was tested end to end.**
 
 Vault is not on OpenAI's provider list. So the question is whether "not supported yet"
 means *rejected* or merely *undocumented*.
