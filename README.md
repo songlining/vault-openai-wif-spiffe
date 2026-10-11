@@ -26,6 +26,26 @@ be the IdP:
 Vault is not on OpenAI's provider list. So the question is whether "not supported yet"
 means *rejected* or merely *undocumented*.
 
+## The flow at a glance
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W as Workload
+    participant V as Vault (SPIFFE engine)
+    participant O as OpenAI auth
+    participant A as OpenAI API
+
+    W->>V: authenticate (Kubernetes / AppRole / userpass)
+    V-->>W: token carrying the policy for its own role
+    W->>V: write spiffe/role/wif-lab/mintjwt audience=...
+    V-->>W: JWT-SVID — SPIFFE ID + the role's metadata
+    W->>O: token exchange (SVID, provider, service account)
+    O-->>W: short-lived access token
+    W->>A: GET /v1/models (Bearer)
+    A-->>W: 200 OK
+```
+
 ## Run it
 
 Everything runs in Podman. Nothing is installed or run on the host.
